@@ -1,0 +1,13 @@
+# dsh-step-token-usage — bundle patch layer.
+#
+# `dsh plugin --profile web add github:hana647929196/dsh-step-token-usage` installs
+# this package into the profile and mounts the plugin row below from the
+# package's own patch, so nothing has to be edited into the profile by hand.
+#
+# This plugin is Client-only: the Host half is an empty `apply()`, it registers
+# no route, and it needs no Host service, so the row declares no `inject`.
+# Everything it renders is read from the durable `assistant/message` events the
+# Session already stores.
+- insert:
+    - id: step-token-usage
+      name: 'dsh-step-token-usage'

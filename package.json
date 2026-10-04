@@ -1,0 +1,58 @@
+{
+  "name": "dsh-step-token-usage",
+  "version": "1.0.0",
+  "description": "DSH Web GUI 插件：让 token 用量常显在每一条助手回复上，并支持点开查看该步的逐次模型请求明细（含重试）。不改动官方包，纯客户端扩展。",
+  "keywords": [
+    "deepseek",
+    "harness",
+    "dsh",
+    "dsh-plugin",
+    "plugin",
+    "tokens",
+    "token-usage",
+    "usage",
+    "cache",
+    "observability",
+    "web-ui"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": []
+    }
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "verify": "node scripts/verify.mjs"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md",
+    "README.en.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hana647929196/dsh-step-token-usage.git"
+  },
+  "bugs": {
+    "url": "https://github.com/hana647929196/dsh-step-token-usage/issues"
+  },
+  "homepage": "https://github.com/hana647929196/dsh-step-token-usage#readme"
+}
