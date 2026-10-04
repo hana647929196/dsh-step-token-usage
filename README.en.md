@@ -54,7 +54,7 @@ Both from real sessions (DSH 0.1.7-rc.2, dark theme), showing the **two granular
 dsh plugin --profile web add github:hana647929196/dsh-step-token-usage
 
 # pinned to a release tag (recommended)
-dsh plugin --profile web add github:hana647929196/dsh-step-token-usage#v1.0.0
+dsh plugin --profile web add github:hana647929196/dsh-step-token-usage#v1.1.0
 ```
 
 Then **refresh the page**; restart `dsh web` if it does not take.

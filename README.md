@@ -57,7 +57,7 @@
 dsh plugin --profile web add github:hana647929196/dsh-step-token-usage
 
 # 锁定版本 tag（推荐）
-dsh plugin --profile web add github:hana647929196/dsh-step-token-usage#v1.0.0
+dsh plugin --profile web add github:hana647929196/dsh-step-token-usage#v1.1.0
 ```
 
 装完**刷新页面**即可。若未生效，重启 `dsh web`。

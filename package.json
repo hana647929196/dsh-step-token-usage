@@ -1,6 +1,6 @@
 {
   "name": "dsh-step-token-usage",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "DSH Web GUI 插件：让 token 用量常显在每一条助手回复上，并支持点开查看该步的逐次模型请求明细（含重试）。不改动官方包，纯客户端扩展。",
   "keywords": [
     "deepseek",
