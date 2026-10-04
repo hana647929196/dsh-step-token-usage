@@ -33,9 +33,19 @@ That is where the cost actually lives. In one measured session:
 - 🌐 **Chinese + English**, following the DSH locale
 - 🧩 **Non-conflicting** — the session-level pills and the shipped turn summary stay exactly as they were
 
-## Screenshot
+## Screenshots
 
-> **TODO**: the author's environment cannot screenshot the GUI, so `docs/` has no image yet. Two shots would be ideal — collapsed (pill per reply) and expanded (per-request ledger).
+Both from real sessions (DSH 0.1.7-rc.2, dark theme), showing the **two granularities side by side**. This plugin does **not** replace the shipped view — they coexist.
+
+**Shipped view (turn level)**: one pill at the end of a turn, whose dialog covers the **whole turn** — 273,628 tok here. Which of the hundred-odd requests inside it cost what is not visible.
+
+![Official turn-level usage](./docs/official-turn-usage.jpg)
+
+**Added by this plugin (step level)**: every assistant reply carries an always-visible pill, expanding into that step's per-request ledger. Below, turn 2 step 2 totals 82,810 tok = uncached input 2,264 + cache read 80,128 + cache write 0 + output 418. The very next step in the same turn (84.5K) gets its own row.
+
+![Per-step pills and per-request ledger](./docs/step-usage-detail.jpg)
+
+> In the expanded panel `2,264 + 80,128 + 0 + 418 = 82,810` — the invariant `scripts/verify.mjs` asserts, visible on screen.
 
 ## Install
 
