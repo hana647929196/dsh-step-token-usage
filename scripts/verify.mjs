@@ -33,6 +33,9 @@ const expect = (condition, message) => {
   if (!condition) problems.push(message);
 };
 
+/** Every stylesheet the plugin injected, as `[pluginCss id, css text]`. */
+const injectedCss = [];
+
 // ------------------------------------------------------------------ fake host
 
 let registration = null;
@@ -52,7 +55,13 @@ globalThis.window = {
   removeEventListener() {},
 };
 globalThis.document = {
-  createElement: () => ({ dataset: {}, remove() {} }),
+  createElement: () => ({
+    dataset: {},
+    remove() {},
+    set textContent(value) {
+      injectedCss.push([this.dataset.pluginCss, value]);
+    },
+  }),
   head: { appendChild() {} },
   body: { nodeType: 1 },
   addEventListener() {},
@@ -328,7 +337,26 @@ const emptyPanel = byClass(empty, 'stu-panel')[0];
 expect(textOf(byClass(emptyPanel, 'stu-panelValue')[0]) === zh['value.missing'], 'a usage-less step does not mark its total as missing');
 expect(walk(emptyPanel).map(textOf).join(' ').includes(zh['note.noUsage']), 'a usage-less step does not explain itself');
 
-console.log(`markup        : ${problems.length === 0 ? 'dialog structure, units, omission and retry sections OK' : 'FAILED'}`);
+// The fee is one more line of the delivered field table: it must not restyle
+// itself (an overridden colour makes its label brighter than every label above
+// it), and because it sits in its own `dl` it has to repeat the grid's row gap
+// itself or it meets the output row at zero distance.
+const css = injectedCss.map(([, text]) => text).join('\n');
+const feeRule = /\.stu-cost\{([^}]*)\}/.exec(css);
+expect(feeRule !== null, 'no .stu-cost rule is injected');
+expect(feeRule !== null && /margin-top:6px/.test(feeRule[1]), `the fee table does not repeat the grid's 6px row gap; got ${JSON.stringify(feeRule?.[1])}`);
+expect(feeRule === null || !/color:/.test(feeRule[1]), `the fee table overrides the field-row colour; got ${JSON.stringify(feeRule?.[1])}`);
+
+// The composer chip borrows the shipped pills' shape: the same type scale and
+// line box, a 14px seat for the sign where they put their icon, and the amount
+// in the label.
+const chipRule = /\.stu-turnCost\{([^}]*)\}/.exec(css);
+const iconRule = /\.stu-turnIcon\{([^}]*)\}/.exec(css);
+expect(chipRule !== null && /font-size:calc\(var\(--dsh-content-font-size-secondary/.test(chipRule[1]), `the chip does not take the pills' type size; got ${JSON.stringify(chipRule?.[1])}`);
+expect(chipRule !== null && /line-height:calc\(20px \+ var\(--dsh-content-font-delta-secondary/.test(chipRule[1]), `the chip does not take the pills' line box; got ${JSON.stringify(chipRule?.[1])}`);
+expect(iconRule !== null && /width:14px;height:14px/.test(iconRule[1]), `the currency sign has no 14px icon seat; got ${JSON.stringify(iconRule?.[1])}`);
+
+console.log(`markup        : ${problems.length === 0 ? 'dialog structure, units, omission, retry sections and styles OK' : 'FAILED'}`);
 
 // ------------------------------------------------------------ cost and tiers
 
@@ -743,6 +771,19 @@ internals.recordTurn(2, turnTwoNode.data.steps);
 expect(internals.turnIndex.size === 2, `the turn index holds ${internals.turnIndex.size} turns, expected 2 — a turn was double-counted`);
 const chipText = textOf(composerChip({ t }));
 expect(chipText.includes(internals.moneyText(offPeak.total * 2 + peak.total, 'CNY')), `the composer chip does not total every loaded turn; got ${JSON.stringify(chipText)}`);
+
+// The chip is shaped like the pills it sits beside: the currency sign on the
+// icon seat (where they put a 14px svg) and the amount on the label, so the two
+// take the same type size and line box instead of the sign dragging the chip
+// off the row.
+const chip = composerChip({ t });
+const chipIcons = byClass(chip, 'stu-turnIcon');
+const chipValues = byClass(chip, 'stu-turnValue');
+expect(chipIcons.length === 1 && textOf(chipIcons[0]) === '\u00a5', `the chip has no icon seat holding the currency sign; got ${JSON.stringify(chipIcons.map(textOf))}`);
+expect(
+  chipValues.length === 1 && textOf(chipValues[0]) === chipText.replace('\u00a5', ''),
+  `the chip's value does not hold the amount on its own; got ${JSON.stringify(chipValues.map(textOf))}`,
+);
 
 // with no turn seen yet, the chip renders nothing rather than zero
 internals.turnIndex.clear();
