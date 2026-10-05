@@ -30,11 +30,12 @@
 - 📌 **常显**：每条助手回复上方一个用量胶囊，不需要悬停
 - 🧮 **逐条**：显示该次请求的 token 构成 —— 未缓存输入、缓存读取、输出
 - 💰 **本步金额**：token 明细下方给出该步的消耗金额，逐次请求各带自己的金额与计价时段
-- 🧾 **本轮金额**：官方每轮末尾那一行总计上，追加该轮的金额与计价时段
-- 🔍 **点开看逐次请求**：提供方 / 模型、逐桶单价与各自小计、缓存命中率
+- 🧾 **本轮金额**：每轮末尾单独一行给出该轮的金额与计价时段
+- 📊 **会话金额**：输入框下方的会话胶囊旁，追加已加载轮次的合计金额
+- 🔍 **点开看逐次请求**：提供方 / 模型、缓存命中率，以及（可选）逐桶单价与各自小计
 - 🔁 **重试可见**：`llm/retry` 的尝试序号、失败码与原因单独成行，不与成功请求混淆
 - 🚫 **缺失即标注，绝不补零**：提供方没上报的字段显示「未上报」，并说明合计的来历；拿不到单价时显示「未知」而不是估算
-- ⚙️ **默认精简，细节可开**：计算规则、单价来源、币种切换默认隐藏，在 Settings → General 里随时打开
+- ⚙️ **默认精简，细节可开**：计算规则、单价来源、币种切换、逐桶单价默认隐藏，在 Settings → General 里随时打开
 - 🌐 **中英双语**，跟随 DSH 语言设置
 - 🧩 **不冲突**：会话级汇总胶囊与官方轮次汇总都保持原样
 
@@ -44,13 +45,14 @@ Settings → General 里有三行开关（默认全关）：
 
 | 开关 | 打开后 |
 |---|---|
+| **显示逐桶单价** | 给每一个 token 桶标出单价与该桶小计（`2,264 tok · ¥1/1M · ¥0.002264`） |
 | **显示计算规则** | 在费用明细里展开计价公式与高峰时段的判定依据 |
 | **显示单价来源** | 标出所用单价来自哪个价目表（中文页 / 英文页 / LiteLLM / 本地覆盖） |
 | **显示币种切换** | 在费用明细里提供 ¥ / $ 切换；关闭时固定用价格册的默认币种（人民币） |
 
-**默认精简是刻意的**：计价公式和峰谷依据加起来近十行，第一次看懂之后就是噪音；单价来源只在核账时有用。但这两样都不该被删掉，所以它们进了设置而不是被砍掉。开关状态存在浏览器 `localStorage`，刷新与重启都保留。
+**默认精简是刻意的**：计价公式和峰谷依据加起来近十行，第一次看懂之后就是噪音；单价来源只在核账时有用；逐桶单价加在每一行后面会把 token 数字挤散。这几样都不该被删掉，所以它们进了设置而不是被砍掉。开关状态存在浏览器 `localStorage`，刷新与重启都保留。
 
-这三行注册在官方 `settings.general.item` 槽位上 —— 官方文档把它描述为「不需要独立页面的单个偏好」的追加座位：节区只负责竖向堆叠，行的标题、当前值与写入路径都由插件自己负责。因此本插件不需要声明配置 schema（那会引入 `@deepseek-ai/schemastery` 依赖，本包按软链接安装时解析不到）。
+这四行注册在官方 `settings.general.item` 槽位上 —— 官方文档把它描述为「不需要独立页面的单个偏好」的追加座位：节区只负责竖向堆叠，行的标题、当前值与写入路径都由插件自己负责。因此本插件不需要声明配置 schema（那会引入 `@deepseek-ai/schemastery` 依赖，本包按软链接安装时解析不到）。
 
 
 ## 金额是怎么来的
@@ -138,7 +140,7 @@ $DSH_HOME/dsh-step-token-usage.json     # 或用 DSH_STEP_TOKEN_USAGE_CONFIG 指
 dsh plugin --profile web add github:hana647929196/dsh-step-token-usage
 
 # 锁定版本 tag（推荐）
-dsh plugin --profile web add github:hana647929196/dsh-step-token-usage#v1.3.0
+dsh plugin --profile web add github:hana647929196/dsh-step-token-usage#v1.4.0
 ```
 
 装完**刷新页面**即可看到胶囊与设置项。金额需要 Host 半注册的价格路由，所以**装完（或升级）后要让插件重新挂载一次**——见下方说明。
@@ -154,7 +156,7 @@ dsh plugin --profile web add github:hana647929196/dsh-step-token-usage#v1.3.0
 ```bash
 cd dsh-step-token-usage
 npm pack
-dsh plugin --profile web add dsh-step-token-usage-1.3.0.tgz
+dsh plugin --profile web add dsh-step-token-usage-1.4.0.tgz
 ```
 
 ### 手动安装（无 pnpm 时）
@@ -177,28 +179,32 @@ dsh plugin --profile web add dsh-step-token-usage-1.3.0.tgz
 🗄 用量 27.4K  ▾   · 未缓存 26.1K · 缓存读 1.2K · 输出 174 · ¥0.005539
 ```
 
-点它展开该步的明细。每个 token 桶后面跟着它自己的单价与小计：
+点它展开该步的明细：
 
 ```
 逐次模型请求                                    第 3 轮 · 第 59 步
 ──────────────────────────────────────────────────────────────
 轮次 / 步                                     第 3 轮 · 第 59 步
 缓存命中                                             97.3%
+未缓存输入                                           2,264
+缓存读取                                            80,128
+缓存写入                                                 0
+输出                                                   418
+合计                                             82,810 tok
+费用                                              ¥0.005539
+计价时段                                            空闲时段
+```
+
+金额紧跟在 token 明细下面，中间不再画分隔线——金额本来就属于它上面那几行。
+
+**逐桶单价**、**单价来源**、**币种切换**，以及底部那两条**计算规则**脚注默认隐藏，在 Settings → General 里打开后是这样：
+
+```
 未缓存输入                       2,264 tok · ¥1/1M · ¥0.002264
 缓存读取                    80,128 tok · ¥0.02/1M · ¥0.001603
 缓存写入                           0 tok · ¥1/1M · ¥0.00
 输出                             418 tok · ¥4/1M · ¥0.001672
 合计                                             82,810 tok
-──────────────────────────────────────────────────────────────
-费用                                              ¥0.005539
-计价时段                                            空闲时段
-```
-
-`0.002264 + 0.001603 + 0.001672 = 0.005539` —— 合计可以逐行加出来，不必凭信。
-
-默认只显示到「计价时段」为止。**单价来源**、**币种切换**，以及底部那两条**计算规则**脚注默认隐藏，在 Settings → General 里打开后是这样：
-
-```
 费用                                              ¥0.005539
 计价时段                                            空闲时段
 单价来源                                 DeepSeek 官方价目表（中文）
@@ -207,6 +213,8 @@ dsh plugin --profile web add dsh-step-token-usage-1.3.0.tgz
        + 输出 × 输出单价，按每次请求发生时刻的峰谷价格分别计算。
   高峰时段判定依据：LiteLLM 与官方价目表（一致）；已按中国法定节假日日历修正。
 ```
+
+打开「显示逐桶单价」后，每个桶的小计之和正好等于合计：`0.002264 + 0.001603 + 0.001672 = 0.005539`。
 
 一个 step 内有多次请求时，逐次请求各自成段，各带自己的金额、计价时段与逐桶单价：
 
@@ -228,10 +236,18 @@ dsh plugin --profile web add dsh-step-token-usage-1.3.0.tgz
   该次请求未上报用量
 ```
 
-**每一轮末尾**的官方总计行上还会追加该轮金额（轮内各步都已加载时才出现；跨时段会标成「高峰 + 空闲」）：
+**每一轮结束后**会多出一行本轮金额（跨时段标成「高峰 + 空闲」）：
 
 ```
-用量 1.9M  ▾   · ¥0.187342 · 高峰 + 空闲
+本轮费用   ¥0.187342   高峰 + 空闲
+```
+
+它在官方轮尾那一行**之前**，因为它的锚点固定在该轮最后一条落定的助手消息上，绝不越过它——越过就会让官方把分支按钮置灰。
+
+**输入框下方**的会话胶囊旁边还有一个合计芯片，合计**已加载轮次**的费用（tooltip 里写明这个范围）：
+
+```
+用量 3.2M · 3h 12m · ¥0.412885
 ```
 
 - **中间步骤**（工具调用轮）会和它们的正文一起折叠进该轮的「工作过程」里 —— 展开工作过程就能看到每一步的胶囊，和官方折叠行为一致。
@@ -299,7 +315,7 @@ dsh plugin --profile web add dsh-step-token-usage-1.3.0.tgz
 - 只依赖**文档化的公共扩展点**，不碰任何私有实现：
   - `ctx.uiConversation.events.register()` 注册对话节点 Definition
   - `conversation.chat.node` 这个 keyed slot 注册渲染单元（官方契约明确写着「a kind with no occupant renders no row」，即新增 kind 不会与官方冲突）
-  - `conversation.chat.turnTail` 这个 **list 子槽位**（由官方轮尾节点在自己的 `children` 里声明）贡献轮级金额——只追加，不替换官方轮尾
+  - `conversation.composer.dock` 这个 **list 槽位**（官方会话胶囊自己就占着它）追加会话金额芯片——只追加，不替换官方胶囊
   - `settings.general.item` 这个 list 槽位注册设置行——官方定位是「不需要独立页面的单个偏好」
 - 金额功能另用一条 Host 路由（`ctx.inject(['webServer'])` + `webServer.register({ kind: 'exact', path, handler })`，与官方及生态插件同一写法）。没有 web server 的 profile 下，Host 半只是不注册路由，界面照常工作并显示「未知」。
 - **不 import 任何 DSH 客户端包**（不 require `dsh-client-ui-primitives` 等），只从浏览器模块表取 `react`。因此官方包升级不会因为导入路径变化而崩，`dsh.client.inject` 一直是空的。
@@ -308,7 +324,7 @@ dsh plugin --profile web add dsh-step-token-usage-1.3.0.tgz
 - **网络**：仅在 Host 半每 12 小时（可配）访问上面四个来源。抓取失败只影响金额显示，不影响 token 显示。
 - **升级注意**：
   - 如果未来 DSH 改动了「工作过程折叠」或「轮尾分支可用性」的判定规则，胶囊的排序位置可能需要重新核对。`scripts/verify.mjs` 会对 `anchorSeq` 做断言，升级后跑一次就能发现。
-  - 如果官方收回了轮尾的 `turnTail` 子槽位或 General 的设置行槽位，对应的注册会失败——轮级金额有 try/catch 兜底（静默不显示），设置行则不会注册。`npm run verify` 会断言这三个槽位的注册形状。
+  - 如果官方收回了 `conversation.composer.dock` 或 General 的设置行槽位，对应的注册会失败——芯片有 try/catch 兜底（静默不显示），设置行则不会注册。轮级金额是普通对话节点，不受影响。`npm run verify` 会断言全部注册形状。
 
 ## 故障排查
 
@@ -329,6 +345,8 @@ dsh plugin --profile web add dsh-step-token-usage-1.3.0.tgz
 
 ## 工作原理
 
+**会话金额芯片**合计已加载轮次的费用。任何单轮的行都看不到整个 transcript，所以每个轮级行物化时会把该轮存进一张按轮编号索引的表；芯片读这张表。它的范围因此是**已加载的窗口**，不是完整会话——tooltip 里如实写明（官方会话胶囊自己的兜底合计同样是窗口范围的）。
+
 **Host 半（`lib/index.js`）**：把价格抓下来、归一成一本「价格册」，缓存到内存与磁盘，并通过 `GET /api/dsh-step-token-usage/pricing` 交给界面。它只用 Node 内置模块（`fetch` / `node:fs`），没有任何依赖。抓取在后台进行，失败不会影响界面加载；价格册带 TTL，过期后台刷新；抓取全挂时返回 503 而不是一个假的 0。
 
 **Client 半（`lib/client.js`）**：以 `window.__ModuleLoader__.load` 注册的懒工厂（`react` 取自浏览器模块表，无 JSX、无构建）。`apply` 里做三件事：
@@ -336,11 +354,11 @@ dsh plugin --profile web add dsh-step-token-usage-1.3.0.tgz
 1. 注册中英词典到 `ctx.locale`
 2. 用 `ctx.uiConversation.events.register()` 注册 kind 为 `step-usage` 的 Definition —— 匹配 `step/start`、`assistant/message`(append)、`llm/retry`，按 `${turn}:${step}` 聚合
 3. 在 `conversation.chat.node` 这个 keyed slot 下注册同名渲染单元
-4. 在 `conversation.chat.turnTail` 这个 list 槽位贡献轮级金额；在 `settings.general.item` 注册三行设置
+4. 在 `conversation.composer.dock` 这个 list 槽位（官方会话胶囊自己就占着它）追加会话金额芯片；在 `settings.general.item` 注册四行设置
 
 此外，模块加载时向 Host 取一次价格册（全页面共用一份），并订阅其变化。**峰谷判定与计价都在 Client 半**：只有它同时握着每次请求的 `time` 与自己那次请求的 `route`，因此能按"当时当地的单价"逐次计价。
 
-**轮级金额**不需要重读会话、也不借用官方包的轮级折叠函数：Definition 在物化每个 step 时顺手把该步的请求写进一张模块内的**轮级台账**（键是 `turn:step`，所以引擎重复物化只会覆盖而不会重复计数），轮尾的贡献再按自己拿到的 `turn` 去查这张表并计价。官方 turn-tail 节点在自己的 `children` 里声明了 `conversation.chat.turnTail` 这个 list 槽位，并且「子槽位表会在第一次通知前提交所有兄弟声明」，因此插件只需 `ctx.slots.inject` 等它出现即可。
+**轮级金额**是一个**轮级 Definition**（kind `turn-cost`），不是一个槽位贡献。它匹配整轮的事件，因此 `context.matches` 里就有这一轮的全部证据——和官方轮尾用的是同一份；它自己折叠、自己成行，既不依赖逐步节点是否已物化，也不依赖跨组件通知。`publication` 只在 `turn/end` 时才 `immediate`，所以进行中的轮不会出现半截数字。锚点取该轮最后一条落定的 `assistant/message`：官方轮尾把任何锚点更靠后的行当作"后续内容"并置灰分支按钮，这条线不能越。
 
 **数据流**是纯函数式的：Definition 的 state 只保存 `turn`/`step` 身份，全部账目在物化时从 `context.matches` 直接折叠出来（`deriveStepUsage`），因此窗口从半步中间开始、没有 `step/start` 时同样正确。计价是同一条链上的纯函数（`priceStep` 按步、`priceTurn` 按轮），三者都不依赖 React。
 
@@ -360,7 +378,7 @@ DSH_HOME=/path/to/dsh_home node scripts/verify.mjs
 
 它会断言：
 
-- 三种槽位注册形状正确（`conversation.chat.node` 用 key、`turnTail` 与 `settings.general.item` 用 id）、中英词典键集一致
+- 全部注册形状正确（两种 `conversation.chat.node` kind 用 key、`conversation.composer.dock` 与 `settings.general.item` 用 id）、中英词典键集一致
 - 每一行的 `anchorSeq` 都等于其落定消息、用量样本不自相矛盾、缺失字段没有被写成 0
 - **金额**：峰谷在窗口两端（含起点闭、终点开）判定正确、周末与法定节假日整天算空闲、高峰价正好是空闲价的两倍、按次计价能跨峰谷相加、别名能解析到继承其价目的模型、缺分项时给「未知」而不是数字、部分可定价时合计带下界语义
 - **逐桶单价**：三类桶的单价与小计都出现，且各桶小计之和等于该步合计

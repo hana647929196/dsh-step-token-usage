@@ -39,7 +39,9 @@ let registration = null;
 const dictionaries = new Map();
 let definition = null;
 let renderer = null;
-let turnTail = null;
+let turnRenderer = null;
+let composerChip = null;
+let turnDefinition = null;
 let settingsRows = [];
 
 globalThis.window = {
@@ -124,7 +126,8 @@ mod.apply({
   uiConversation: {
     events: {
       register: (candidate) => {
-        definition = candidate;
+        if (definition === null) definition = candidate;
+        else turnDefinition = candidate;
         registered.push(`definition ${candidate.kind}`);
         return noop;
       },
@@ -140,18 +143,19 @@ mod.apply({
       expect(typeof component === 'function', 'a registration is not a component function');
       expect(options.locale !== undefined, `slot "${options.name}" declares no locale namespace`);
       if (options.name === 'conversation.chat.node') {
-        expect(options.key === definition.kind, `renderer key "${options.key}" does not match definition kind "${definition.kind}"`);
-        renderer = component;
+        expect(options.key === definition.kind || options.key === turnDefinition.kind, `unexpected chat node kind "${options.key}"`);
+        if (options.key === definition.kind) renderer = component;
+        else turnRenderer = component;
         registered.push(`slot ${options.name} key=${options.key}`);
         return noop;
       }
-      if (options.name === 'conversation.chat.turnTail') {
+      if (options.name === 'conversation.composer.dock') {
         // A list slot: contributions are addressed by `id`, and each resolves
-        // its own data from the owner props instead of a chain match.
-        expect(typeof options.id === 'string' && options.id !== '', 'a turnTail contribution declares no id');
+        // its own data instead of a chain match.
+        expect(typeof options.id === 'string' && options.id !== '', 'a composer-dock contribution declares no id');
         expect(options.key === undefined, 'a list-slot contribution must use id, not key');
-        turnTail = component;
-        registered.push(`slot ${options.name} id=${options.id}`);
+        composerChip = component;
+        registered.push(`slot ${options.name} id=${options.id} order=${options.order}`);
         return noop;
       }
       if (options.name === 'settings.general.item') {
@@ -170,7 +174,9 @@ mod.apply({
 
 if (definition === null) throw new Error('no Conversation Definition was registered');
 if (renderer === null) throw new Error('no renderer was registered');
-if (turnTail === null) throw new Error('no turn-tail contribution was registered');
+if (turnRenderer === null) throw new Error('no per-turn row renderer was registered');
+if (composerChip === null) throw new Error('no composer-dock chip was registered');
+if (turnDefinition === null) throw new Error('no per-turn Definition was registered');
 if (settingsRows.length === 0) throw new Error('no settings rows were registered');
 expect(typeof definition.buildViewNode === 'function', 'definition exposes no buildViewNode');
 
@@ -459,9 +465,25 @@ expect(costText.includes(zh['cost.section']), 'the dialog has no cost section');
 expect(costText.includes(zh['tier.offPeak']), 'the dialog does not name the off-peak tier');
 expect(textOf(byClass(costTree, 'stu-root')[0]).includes('\u00a50.005539'), 'the collapsed pill does not show the amount');
 
+const rerender = () => {
+  const tree = renderer({
+    node: {
+      data: probe({
+        attempts: [{ kind: 'request', seq: 10, index: 1, time: MONDAY_OFFPEAK, route: { provider: 'deepseek-official', model: 'deepseek-flash' }, usage: usage() }],
+      }),
+    },
+    t,
+  });
+  return { tree, panel: byClass(tree, 'stu-panel')[0], text: walk(byClass(tree, 'stu-panel')[0]).map(textOf).join(' ') };
+
+
 // per-bucket unit prices and contributions: the amount must be readable as the
 // sum of the rows above it, not taken on trust
-const bucketPrices = byClass(costPanel, 'stu-unitPrice');
+// per-bucket prices are off by default like the other detail sections
+expect(byClass(costPanel, 'stu-unitPrice').length === 0, 'per-bucket unit prices are visible by default');
+internals.setPreference('showRowPrices', true);
+const pricedPanel = byClass(rerender().tree, 'stu-panel')[0];
+const bucketPrices = byClass(pricedPanel, 'stu-unitPrice');
 expect(bucketPrices.length >= 3, `expected a unit price on each bucket row, found ${bucketPrices.length}`);
 const priceTexts = bucketPrices.map(textOf);
 expect(priceTexts.some((text) => text.includes('\u00a51/1M')), `the uncached-input unit price is missing: ${JSON.stringify(priceTexts)}`);
@@ -473,7 +495,7 @@ expect(priceTexts.some((text) => text.includes('\u00a50.001672')), `the output c
 // the rows must add up to the total the section header states
 const contributions = [0.002264, 0.001603, 0.001672];
 expect(Math.abs(contributions.reduce((sum, value) => sum + value, 0) - 0.005539) < 1e-9, 'the per-bucket contributions do not sum to the step total');
-expect(costText.includes('\u00a50.005539'), 'the per-bucket rows and the step total disagree');
+expect(walk(pricedPanel).map(textOf).join(' ').includes('\u00a50.005539'), 'the per-bucket rows and the step total disagree');
 
 // the three heavy sections are hidden by default, and the preferences bring
 // each one back
@@ -482,16 +504,6 @@ expect(!costText.includes(zh['note.costBasis']), 'the derivation note is visible
 expect(!costText.includes(zh['note.costWindowSource'].replace('{source}', zh['sourceName.litellm+docs'])), 'the peak-window note is visible by default');
 expect(byClass(costPanel, 'stu-costToggle').length === 0, 'the currency control is visible by default');
 
-const rerender = () => {
-  const tree = renderer({
-    node: {
-      data: probe({
-        attempts: [{ kind: 'request', seq: 10, index: 1, time: MONDAY_OFFPEAK, route: { provider: 'deepseek-official', model: 'deepseek-flash' }, usage: usage() }],
-      }),
-    },
-    t,
-  });
-  return { tree, panel: byClass(tree, 'stu-panel')[0], text: walk(byClass(tree, 'stu-panel')[0]).map(textOf).join(' ') };
 };
 
 internals.setPreference('showSource', true);
@@ -509,12 +521,15 @@ expect(revealed.text.includes('\u00a50.005539'), 'revealing the sections changed
 internals.setCurrency('USD');
 const usdText = rerender().text;
 expect(usdText.includes('$0.0008308'), 'switching to USD did not re-price the step');
-expect(usdText.includes('$0.15/1M'), 'switching to USD did not switch the unit prices');
+internals.setPreference('showRowPrices', true);
+expect(rerender().text.includes('$0.15/1M'), 'switching to USD did not switch the unit prices');
+internals.setPreference('showRowPrices', false);
 expect(usdText.includes(zh['source.deepseek-docs-en']), 'switching to USD did not switch the unit-price source');
 internals.setCurrency('CNY');
 expect(rerender().text.includes('\u00a50.005539'), 'the default currency is not CNY');
 
 // back to the defaults the rest of the suite assumes
+internals.setPreference('showRowPrices', false);
 internals.setPreference('showSource', false);
 internals.setPreference('showBasis', false);
 internals.setPreference('showCurrency', false);
@@ -628,67 +643,116 @@ internals.priceStore.seed(book);
 
 // --------------------------------------------------------------- turn total
 
-// The ledger is keyed `turn:step`, so the engine re-running buildViewNode must
-// overwrite a step rather than add it twice.
-internals.turnLedger.clear();
-const attempt = (time, model = 'deepseek-flash', extra = {}) => ({
-  kind: 'request',
-  seq: 1,
-  index: 1,
+// The per-turn row is its own Definition over the turn's whole evidence, so it
+// is driven here exactly the way the engine drives it.
+const turnMatch = (event) => turnDefinition.match(event);
+const turnContext = (events, id) => {
+  const matches = events
+    .map((event) => ({ event, role: turnMatch(event)?.role, location: { kind: 'unresolved' } }))
+    .filter((match) => match.role !== undefined);
+  return {
+    key: `${turnDefinition.kind.length}:${turnDefinition.kind}${id}`,
+    kind: turnDefinition.kind,
+    id,
+    matches,
+    start: matches.find((match) => match.role === 'start'),
+    state: undefined,
+    current: new Map(),
+  };
+};
+const assistantEvent = (turn, step, seq, time, model = 'deepseek-flash', input = 2264, cacheRead = 80128, output = 418) => ({
+  type: 'assistant/message',
+  seq,
   time,
-  route: { provider: 'deepseek-official', model },
-  usage: usage(),
-  ...extra,
+  surfaceOp: 'append',
+  data: {
+    turn,
+    step,
+    usage: { inputTokens: input, outputTokens: output, cacheReadTokens: cacheRead, cacheWriteTokens: 0, totalTokens: input + cacheRead + output },
+    message: { source: { provider: 'deepseek-official', model } },
+  },
 });
-internals.recordStepUsage(1, 1, [attempt(MONDAY_OFFPEAK)]);
-internals.recordStepUsage(1, 2, [attempt(MONDAY_PEAK)]);
-internals.recordStepUsage(1, 2, [attempt(MONDAY_PEAK)]);
-internals.recordStepUsage(2, 1, [attempt(MONDAY_OFFPEAK)]);
-expect(internals.turnLedger.size === 3, `the ledger holds ${internals.turnLedger.size} steps, expected 3 — a step was double-counted`);
+const turnStart = (turn, seq) => ({ type: 'turn/start', seq, time: 0, data: { turn } });
+const turnEnd = (turn, seq) => ({ type: 'turn/end', seq, time: 0, data: { turn, reason: { kind: 'completed' } } });
 
-// a step with no billed request contributes nothing to the ledger
-internals.recordStepUsage(1, 3, [{ kind: 'retry', seq: 9, attempt: 1, route: null, usage: null }]);
-expect(internals.turnLedger.has('1:3') === false, 'a retry-only step was recorded as billable');
+// turn 1 spans both tiers across two steps
+const turnOneEvents = [
+  turnStart(1, 1),
+  assistantEvent(1, 1, 2, MONDAY_OFFPEAK, 'deepseek-flash', 2264, 80128, 418),
+  assistantEvent(1, 2, 3, MONDAY_PEAK, 'deepseek-flash', 2264, 80128, 418),
+  turnEnd(1, 4),
+];
+const turnOneNode = turnDefinition.buildViewNode(turnContext(turnOneEvents, '1'));
+expect(turnOneNode !== null, 'a completed turn produced no money row');
+const turnOneData = turnOneNode?.data;
+expect(turnOneData?.steps.length === 2, `the turn row folded ${turnOneData?.steps.length} steps, expected 2`);
+expect(turnOneNode?.anchorSeq === 3, `the turn row anchored at ${turnOneNode?.anchorSeq}, expected the last settled message (3)`);
+expect(turnOneNode?.kind === internals.TURN_KIND, 'the turn row is not the turn-cost kind');
 
-const turnOne = internals.priceTurn(1, book, 'CNY');
-expect(turnOne.priced === 2, `the turn priced ${turnOne.priced} requests, expected 2`);
-expect(Math.abs(turnOne.total - (offPeak.total + peak.total)) < 1e-12, `the turn total ${turnOne.total} is not the sum of its steps`);
-expect(turnOne.tiers.size === 2, 'a turn spanning both tiers did not record both');
-expect(turnOne.partial === false, 'a fully priced turn was marked partial');
+const turnOneCost = internals.priceSteps(turnOneData.steps, book, 'CNY');
+expect(turnOneCost.priced === 2, `the turn priced ${turnOneCost.priced} requests, expected 2`);
+expect(Math.abs(turnOneCost.total - (offPeak.total + peak.total)) < 1e-12, `the turn total ${turnOneCost.total} is not the sum of its steps`);
+expect(turnOneCost.tiers.size === 2, 'a turn spanning both tiers did not record both');
+expect(turnOneCost.partial === false, 'a fully priced turn was marked partial');
+
+// the anchor must never pass the closing message, or the shipped footer greys
+// out its branch action
+for (const node of [turnOneNode]) {
+  const closing = turnOneEvents.filter((event) => event.type === 'assistant/message').at(-1).seq;
+  expect(node.anchorSeq <= closing, `the turn row anchored past the closing message (${node.anchorSeq} > ${closing})`);
+}
 
 // turns must not leak into each other
-const turnTwo = internals.priceTurn(2, book, 'CNY');
-expect(Math.abs(turnTwo.total - offPeak.total) < 1e-12, `turn 2 picked up turn 1's requests: ${turnTwo.total}`);
-expect(internals.priceTurn(99, book, 'CNY') === null, 'an unknown turn produced a cost instead of null');
+const turnTwoNode = turnDefinition.buildViewNode(turnContext([turnStart(2, 10), assistantEvent(2, 1, 11, MONDAY_OFFPEAK), turnEnd(2, 12)], '2'));
+const turnTwoCost = internals.priceSteps(turnTwoNode.data.steps, book, 'CNY');
+expect(Math.abs(turnTwoCost.total - offPeak.total) < 1e-12, `turn 2 picked up turn 1's requests: ${turnTwoCost.total}`);
+
+// a turn with nothing billed yields no row at all
+expect(turnDefinition.buildViewNode(turnContext([turnStart(9, 20), turnEnd(9, 21)], '9')) === null, 'a turn with no billed request produced a row');
 
 // an unpriced model makes the turn a lower bound, not a wrong number
-internals.recordStepUsage(3, 1, [attempt(MONDAY_OFFPEAK, 'gpt-9')]);
-const turnThree = internals.priceTurn(3, book, 'CNY');
-expect(turnThree.total === null && turnThree.partial === true, 'a wholly unpriced turn did not report itself as unpriced');
+const turnThreeNode = turnDefinition.buildViewNode(turnContext([turnStart(3, 30), assistantEvent(3, 1, 31, MONDAY_OFFPEAK, 'gpt-9'), turnEnd(3, 32)], '3'));
+const turnThreeCost = internals.priceSteps(turnThreeNode.data.steps, book, 'CNY');
+expect(turnThreeCost.total === null && turnThreeCost.partial === true, 'a wholly unpriced turn did not report itself as unpriced');
 
-// rendering: the contribution rides inside the shipped turn-tail row
+// rendering the row
 internals.priceStore.seed(book);
 internals.setCurrency('CNY');
-const turnTree = turnTail({ turn: 1, t });
+const turnTree = turnRenderer({ node: turnOneNode, t });
 const turnText = textOf(turnTree);
 const expectedTurnTotal = internals.moneyText(offPeak.total + peak.total, 'CNY');
-expect(turnText.includes(expectedTurnTotal), `the turn-tail contribution does not show ${expectedTurnTotal}; got ${JSON.stringify(turnText)}`);
+expect(turnText.includes(expectedTurnTotal), `the turn row does not show ${expectedTurnTotal}; got ${JSON.stringify(turnText)}`);
 expect(turnText.includes(zh['tier.mixed']), 'a mixed-tier turn is not labelled as mixed');
-expect(turnTree?.props?.['data-turn-cost'] === 1, 'the turn-tail contribution is not tagged with its turn');
+expect(turnText.includes(zh['cost.turnTotal']), 'the turn row does not label itself');
+expect(turnTree?.props?.['data-turn-cost'] === 1, 'the turn row is not tagged with its turn');
 
 // a turn whose requests are all unpriced says so rather than vanishing
-const unpricedTurnText = textOf(turnTail({ turn: 3, t }));
+const unpricedTurnText = textOf(turnRenderer({ node: turnThreeNode, t }));
 expect(unpricedTurnText.includes(zh['pill.priceUnknown']), 'an unpriced turn shows nothing instead of saying so');
 
-// a turn with no ledger row yields nothing at all (its steps are not loaded)
-expect(turnTail({ turn: 99, t }) === null, 'a turn with no ledger row rendered something');
-
-// and with no book, the contribution stays silent
+// with no book the row stays silent
 internals.priceStore.seed(null, { status: 'unavailable' });
-expect(turnTail({ turn: 1, t }) === null, 'the turn-tail contribution rendered without a price book');
+expect(turnRenderer({ node: turnOneNode, t }) === null, 'the turn row rendered without a price book');
 internals.priceStore.seed(book);
 
-console.log(`turn total    : ${problems.length === 0 ? 'ledger keying, per-turn sums, tier mix and unpriced turns OK' : 'FAILED'}`);
+// the composer chip totals every turn row that has been materialized
+internals.turnIndex.clear();
+internals.recordTurn(1, turnOneData.steps);
+internals.recordTurn(2, turnTwoNode.data.steps);
+internals.recordTurn(2, turnTwoNode.data.steps);
+expect(internals.turnIndex.size === 2, `the turn index holds ${internals.turnIndex.size} turns, expected 2 — a turn was double-counted`);
+const chipText = textOf(composerChip({ t }));
+expect(chipText.includes(internals.moneyText(offPeak.total * 2 + peak.total, 'CNY')), `the composer chip does not total every loaded turn; got ${JSON.stringify(chipText)}`);
+
+// with no turn seen yet, the chip renders nothing rather than zero
+internals.turnIndex.clear();
+expect(composerChip({ t }) === null, 'the composer chip rendered a total before any turn was recorded');
+internals.priceStore.seed(null, { status: 'unavailable' });
+expect(composerChip({ t }) === null, 'the composer chip rendered without a price book');
+internals.priceStore.seed(book);
+internals.turnIndex.clear();
+
+console.log(`turn total    : ${problems.length === 0 ? 'per-turn fold, anchor safety, tier mix, composer total and unpriced turns OK' : 'FAILED'}`);
 
 // ----------------------------------------------------------------- settings
 
@@ -735,12 +799,17 @@ for (const name of preferenceNames) {
   const hiddenText = walk(byClass(renderer({ node: { data: probe({ attempts: [{ kind: 'request', seq: 10, index: 1, time: MONDAY_OFFPEAK, route: { provider: 'p', model: 'deepseek-flash' }, usage: usage() }] }) }, t }), 'stu-panel')[0]).map(textOf).join(' ');
   internals.setPreference(name, true);
   const shownText = walk(byClass(renderer({ node: { data: probe({ attempts: [{ kind: 'request', seq: 10, index: 1, time: MONDAY_OFFPEAK, route: { provider: 'p', model: 'deepseek-flash' }, usage: usage() }] }) }, t }), 'stu-panel')[0]).map(textOf).join(' ');
-  const marker = name === 'showBasis' ? zh['note.costBasis'] : name === 'showSource' ? zh['source.deepseek-docs-zh'] : 'USD';
+  const marker =
+    name === 'showBasis' ? zh['note.costBasis']
+    : name === 'showSource' ? zh['source.deepseek-docs-zh']
+    : name === 'showRowPrices' ? '\u00a51/1M'
+    : 'USD';
   expect(!hiddenText.includes(marker), `"${name}" is visible while off`);
   expect(shownText.includes(marker), `turning "${name}" on did not reveal it`);
   internals.setPreference(name, false);
 }
 
+expect(internals.preferenceStore.values.showRowPrices === false, 'showRowPrices did not return to its default');
 expect(internals.preferenceStore.values.showBasis === false, 'showBasis did not return to its default');
 expect(internals.preferenceStore.values.showSource === false, 'showSource did not return to its default');
 expect(internals.preferenceStore.values.showCurrency === false, 'showCurrency did not return to its default');

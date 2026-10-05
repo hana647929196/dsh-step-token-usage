@@ -1,6 +1,6 @@
 {
   "name": "dsh-step-token-usage",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "DSH Web GUI 插件：token 用量常显在每条助手回复上，点开可看该步逐次模型请求明细（含重试）、逐桶单价与小计，并给出该步与该轮的消耗金额（按每次请求发生时刻的峰谷价格动态计算）。默认精简显示，细节可在设置里打开。不改动官方包。",
   "keywords": [
     "deepseek",
