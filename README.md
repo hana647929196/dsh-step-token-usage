@@ -140,7 +140,7 @@ $DSH_HOME/dsh-step-token-usage.json     # 或用 DSH_STEP_TOKEN_USAGE_CONFIG 指
 dsh plugin --profile web add github:hana647929196/dsh-step-token-usage
 
 # 锁定版本 tag（推荐）
-dsh plugin --profile web add github:hana647929196/dsh-step-token-usage#v1.4.0
+dsh plugin --profile web add github:hana647929196/dsh-step-token-usage#v1.4.1
 ```
 
 装完**刷新页面**即可看到胶囊与设置项。金额需要 Host 半注册的价格路由，所以**装完（或升级）后要让插件重新挂载一次**——见下方说明。
@@ -156,7 +156,7 @@ dsh plugin --profile web add github:hana647929196/dsh-step-token-usage#v1.4.0
 ```bash
 cd dsh-step-token-usage
 npm pack
-dsh plugin --profile web add dsh-step-token-usage-1.4.0.tgz
+dsh plugin --profile web add dsh-step-token-usage-1.4.1.tgz
 ```
 
 ### 手动安装（无 pnpm 时）

@@ -128,7 +128,7 @@ Both from real sessions (DSH 0.1.7-rc.2, dark theme), showing the **two granular
 dsh plugin --profile web add github:hana647929196/dsh-step-token-usage
 
 # pinned to a release tag (recommended)
-dsh plugin --profile web add github:hana647929196/dsh-step-token-usage#v1.4.0
+dsh plugin --profile web add github:hana647929196/dsh-step-token-usage#v1.4.1
 ```
 
 Then **refresh the page** for the pills and the settings rows. Amounts need the Host half's pricing route, so **installing or upgrading requires one plugin remount** — see the note below.
@@ -143,7 +143,7 @@ From source:
 
 ```bash
 npm pack
-dsh plugin --profile web add dsh-step-token-usage-1.4.0.tgz
+dsh plugin --profile web add dsh-step-token-usage-1.4.1.tgz
 ```
 
 Manual install (no pnpm): copy the package to `~/.dsh/profiles/web/node_modules/dsh-step-token-usage`, append `"dsh-step-token-usage"` to `dsh.profile.bundles` in the profile `package.json`, and add this to the profile `cordis.patch.yml`:
