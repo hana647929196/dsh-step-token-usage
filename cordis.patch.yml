@@ -4,10 +4,22 @@
 # this package into the profile and mounts the plugin row below from the
 # package's own patch, so nothing has to be edited into the profile by hand.
 #
-# This plugin is Client-only: the Host half is an empty `apply()`, it registers
-# no route, and it needs no Host service, so the row declares no `inject`.
-# Everything it renders is read from the durable `assistant/message` events the
-# Session already stores.
+# Token counts need no Host help: they are read from the durable
+# `assistant/message` events the Session already stores.
+#
+# Amounts do. Unit prices and the peak / off-peak windows are fetched at run
+# time, and the official rate card is server-rendered HTML with no CORS header,
+# so the browser cannot read it directly. The Host half therefore owns a price
+# book and serves it from GET /api/dsh-step-token-usage/pricing.
+#
+# The Client half additionally contributes a per-turn amount into the shipped
+# turn-tail row (`conversation.chat.turnTail`) and three preference switches into
+# Settings -> General (`settings.general.item`). Both are additive list slots, so
+# the shipped views are never replaced.
+#
+# The row declares no `inject`: the pricing route is registered from inside
+# `apply` via `ctx.inject(['webServer'])`, so a profile without a web server
+# still mounts the plugin and simply reports prices as unknown.
 - insert:
     - id: step-token-usage
       name: 'dsh-step-token-usage'

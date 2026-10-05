@@ -4,9 +4,9 @@
 [![Topic: dsh-plugin](https://img.shields.io/badge/topic-dsh--plugin-blue)](https://github.com/topics/dsh-plugin)
 [![DSH](https://img.shields.io/badge/DSH-0.1.7--rc.2-4c6ef5)](#兼容性)
 
-**把 token 用量常显在每一条助手回复上，点开即可查看该步的逐次模型请求明细（含重试）。不改动任何官方包。**
+**把 token 用量常显在每一条助手回复上，点开即可查看该步的逐次模型请求明细（含重试），并按每次请求发生时刻的峰谷价格算出对应金额。不改动任何官方包。**
 
-> A DSH Web GUI plugin that puts an always-visible token pill on **every** assistant reply, expanding into that step's exact per-request ledger (retries included). No shipped package is patched. · [English](README.en.md)
+> A DSH Web GUI plugin that puts an always-visible token pill on **every** assistant reply, expanding into that step's exact per-request ledger (retries included) — priced in RMB or USD, at the peak or off-peak rate in force when each request was sent. No shipped package is patched. · [English](README.en.md)
 
 ---
 
@@ -29,11 +29,92 @@
 
 - 📌 **常显**：每条助手回复上方一个用量胶囊，不需要悬停
 - 🧮 **逐条**：显示该次请求的 token 构成 —— 未缓存输入、缓存读取、输出
-- 🔍 **点开看逐次请求**：提供方 / 模型、未缓存输入、缓存读取、缓存写入、输出（含推理）、合计、缓存命中率
+- 💰 **本步金额**：token 明细下方给出该步的消耗金额，逐次请求各带自己的金额与计价时段
+- 🧾 **本轮金额**：官方每轮末尾那一行总计上，追加该轮的金额与计价时段
+- 🔍 **点开看逐次请求**：提供方 / 模型、逐桶单价与各自小计、缓存命中率
 - 🔁 **重试可见**：`llm/retry` 的尝试序号、失败码与原因单独成行，不与成功请求混淆
-- 🚫 **缺失即标注，绝不补零**：提供方没上报的字段显示「未上报」，并说明合计的来历
+- 🚫 **缺失即标注，绝不补零**：提供方没上报的字段显示「未上报」，并说明合计的来历；拿不到单价时显示「未知」而不是估算
+- ⚙️ **默认精简，细节可开**：计算规则、单价来源、币种切换默认隐藏，在 Settings → General 里随时打开
 - 🌐 **中英双语**，跟随 DSH 语言设置
 - 🧩 **不冲突**：会话级汇总胶囊与官方轮次汇总都保持原样
+
+## 设置
+
+Settings → General 里有三行开关（默认全关）：
+
+| 开关 | 打开后 |
+|---|---|
+| **显示计算规则** | 在费用明细里展开计价公式与高峰时段的判定依据 |
+| **显示单价来源** | 标出所用单价来自哪个价目表（中文页 / 英文页 / LiteLLM / 本地覆盖） |
+| **显示币种切换** | 在费用明细里提供 ¥ / $ 切换；关闭时固定用价格册的默认币种（人民币） |
+
+**默认精简是刻意的**：计价公式和峰谷依据加起来近十行，第一次看懂之后就是噪音；单价来源只在核账时有用。但这两样都不该被删掉，所以它们进了设置而不是被砍掉。开关状态存在浏览器 `localStorage`，刷新与重启都保留。
+
+这三行注册在官方 `settings.general.item` 槽位上 —— 官方文档把它描述为「不需要独立页面的单个偏好」的追加座位：节区只负责竖向堆叠，行的标题、当前值与写入路径都由插件自己负责。因此本插件不需要声明配置 schema（那会引入 `@deepseek-ai/schemastery` 依赖，本包按软链接安装时解析不到）。
+
+
+## 金额是怎么来的
+
+价格**不是写死在代码里的**。插件在 Host 半把下面几个来源抓下来、归一成一本「价格册」，缓存到磁盘后交给界面；界面再按每次请求自己的时间戳判断当时是高峰还是空闲，用对应单价算钱。
+
+| 来源 | 提供什么 |
+|---|---|
+| [DeepSeek 官方价目表（中文）](https://api-docs.deepseek.com/zh-cn/quick_start/pricing) | 人民币单价：高峰价与空闲价 |
+| [DeepSeek 官方价目表（英文）](https://api-docs.deepseek.com/quick_start/pricing) | 美元单价：高峰价与空闲价 |
+| [LiteLLM 价格数据集](https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json) | **机器可读的峰谷时段**；美元单价的兜底 |
+| [holiday-cn](https://github.com/NateScarlet/holiday-cn) | 国务院放假安排（含调休），用于「高峰时段不含中国法定节假日」 |
+
+截至 2026-10，官方规则是：**高峰时段 = UTC 周一至周五 01:00–04:00 与 06:00–10:00**（北京时间 09:00–12:00、14:00–18:00，不含中国法定节假日），**空闲价 = 高峰价的一半**，其余时段与周末全天都是空闲时段。
+
+这套规则有两个独立来源可以互相印证：LiteLLM 把它编码成结构化的 `off_peak_pricing.windows`，官方价目表把它写在脚注里。插件**两者都读**，一致才采信，不一致时以官方页面为准并在价格册里留下 `price-window-disagreement` 记录；两者都拿不到时才退回内置规则，并同样留痕。价格册里同时记着每个来源的成功与否，界面会照实说明单价出处。
+
+**计价公式**（DeepSeek 只发布三个价：缓存命中输入、缓存未命中输入、输出）：
+
+```
+金额 = 未缓存输入 × 未命中单价 + 缓存读取 × 命中单价 + 输出 × 输出单价
+```
+
+- **按次计价，不按步混合**：一个 step 若跨过峰谷边界（或中途换了模型），每次请求各按自己的时刻与模型算，再相加 —— 不会拿一个它从没付过的混合单价去乘总数。
+- **逐桶可核**：明细里每个 token 桶后面都跟着它的单价与该桶金额（`2,264 tok · ¥1/1M · ¥0.002264`），所以「合计」可以逐行加出来。只有当该行能唯一归因到同一张价目表的同一时段时才显示单价；跨时段或跨模型的 step 会把单价下沉到逐次请求分区，那里归因是明确的。
+- **本轮金额 = 各步之和**，而每一步内部仍按次计价，所以跨时段、跨模型都不会被抹平。
+- **缓存写入**按未命中单价计（DeepSeek 未发布单独的写入溢价）。实测本机 10,034 条用量样本里 `cacheWriteTokens` **恒为 0**，所以这一项实际不影响结果。
+- 金额与单价的格式化是分开的：金额要保住位数（`¥0.005539`、`$0.0008308`、`¥123.46`，低于可显示精度时显示 `<0.00000001` 而不是假的 0），单价则要短（`¥1/1M` 而不是 `¥1.000/1M`）。
+- 合计若只是**下界**（有请求定不了价），前面会带 `≥`，并在脚注里点名是几次请求没能定价。
+
+### 拿不到价格时
+
+价格册连同它的获取时间一起缓存在磁盘上（默认 12 小时 TTL）。所以：
+
+- **第一次抓取失败但磁盘上有旧册子** → 照常显示金额，并在脚注里标注这是缓存副本及上次刷新时间。
+- **从来没有拿到过任何价格** → 界面显示「价格未知」并说明原因，**不显示任何数字**。
+- **模型不在价格册里** → 显示「未知」，不会被套上另一个模型的单价。
+
+## 可配置项（可选）
+
+插件不声明配置 schema（那会引入 `@deepseek-ai/schemastery` 依赖，而本包按软链接安装时该依赖并不解析得到）。要覆盖任何东西，写一个 JSON 文件：
+
+```bash
+$DSH_HOME/dsh-step-token-usage.json     # 或用 DSH_STEP_TOKEN_USAGE_CONFIG 指定路径
+```
+
+```json
+{
+  "ttlHours": 6,
+  "sources": {
+    "docsZh": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing",
+    "litellm": "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json"
+  },
+  "extraHolidays": ["2026-02-16"],
+  "priceOverrides": {
+    "deepseek-flash": {
+      "CNY": { "peak": { "inputMiss": 2, "inputHit": 0.04, "output": 8 } }
+    }
+  }
+}
+```
+
+`priceOverrides` 里的值会盖过抓取结果，单价来源标记为「本地覆盖配置」。同一组键也可以直接写在 profile 的插件行 `config:` 下。
+
 
 ## 截图
 
@@ -57,19 +138,23 @@
 dsh plugin --profile web add github:hana647929196/dsh-step-token-usage
 
 # 锁定版本 tag（推荐）
-dsh plugin --profile web add github:hana647929196/dsh-step-token-usage#v1.1.0
+dsh plugin --profile web add github:hana647929196/dsh-step-token-usage#v1.3.0
 ```
 
-装完**刷新页面**即可。若未生效，重启 `dsh web`。
+装完**刷新页面**即可看到胶囊与设置项。金额需要 Host 半注册的价格路由，所以**装完（或升级）后要让插件重新挂载一次**——见下方说明。
 
-> 本插件是**纯 JavaScript 的客户端插件，没有构建步骤**，所以不需要 `pnpm run dev:web`。作者本机实测：安装完成后热加载当场生效，连页面刷新都不需要。
+> 本插件是**纯 JavaScript、没有构建步骤**。Client 半（`lib/client.js`）由 DSH 按内容哈希（`rev=`）发给浏览器，所以改完只要刷新页面就生效，不需要 `pnpm run dev:web`。
+>
+> 但 **Host 半（`lib/index.js`）的改动不会自动生效**：DSH 的 HMR 默认只监听 profile 配置（`hmr.root: []`），**不监听插件源码**。触发一次插件重新挂载即可——改动任一 `cordis.patch.yml`、在 GUI 的插件市场里把插件关掉再打开、或者重启 `dsh web`。重挂载时 `dsh-hmr` 会走 `ctx.loader.import(...)` 重新导入模块（这正是该包存在的意义），所以新代码会真正加载；本机实测：改完 Host 半后写一次补丁文件，路由便从 404 变为正常供数，无需重启进程。
+>
+> 只改 Client 半（`lib/client.js`）时不需要任何重挂载，刷新页面即可。
 
 ### 从源码本地打包
 
 ```bash
 cd dsh-step-token-usage
 npm pack
-dsh plugin --profile web add dsh-step-token-usage-1.0.0.tgz
+dsh plugin --profile web add dsh-step-token-usage-1.3.0.tgz
 ```
 
 ### 手动安装（无 pnpm 时）
@@ -89,24 +174,64 @@ dsh plugin --profile web add dsh-step-token-usage-1.0.0.tgz
 安装后无需任何配置。每条助手回复上方会出现一行胶囊：
 
 ```
-🗄 用量 27.4K  ▾   · 未缓存 26.1K · 缓存读 1.2K · 输出 174
+🗄 用量 27.4K  ▾   · 未缓存 26.1K · 缓存读 1.2K · 输出 174 · ¥0.005539
 ```
 
-点它展开该步的明细：
+点它展开该步的明细。每个 token 桶后面跟着它自己的单价与小计：
 
 ```
 逐次模型请求                                    第 3 轮 · 第 59 步
-─────────────────────────────────────────────────────────────
+──────────────────────────────────────────────────────────────
+轮次 / 步                                     第 3 轮 · 第 59 步
+缓存命中                                             97.3%
+未缓存输入                       2,264 tok · ¥1/1M · ¥0.002264
+缓存读取                    80,128 tok · ¥0.02/1M · ¥0.001603
+缓存写入                           0 tok · ¥1/1M · ¥0.00
+输出                             418 tok · ¥4/1M · ¥0.001672
+合计                                             82,810 tok
+──────────────────────────────────────────────────────────────
+费用                                              ¥0.005539
+计价时段                                            空闲时段
+```
+
+`0.002264 + 0.001603 + 0.001672 = 0.005539` —— 合计可以逐行加出来，不必凭信。
+
+默认只显示到「计价时段」为止。**单价来源**、**币种切换**，以及底部那两条**计算规则**脚注默认隐藏，在 Settings → General 里打开后是这样：
+
+```
+费用                                              ¥0.005539
+计价时段                                            空闲时段
+单价来源                                 DeepSeek 官方价目表（中文）
+币种                                            ¥ CNY | $ USD
+  金额 = 未缓存输入 × 未命中单价 + 缓存读取 × 命中单价
+       + 输出 × 输出单价，按每次请求发生时刻的峰谷价格分别计算。
+  高峰时段判定依据：LiteLLM 与官方价目表（一致）；已按中国法定节假日日历修正。
+```
+
+一个 step 内有多次请求时，逐次请求各自成段，各带自己的金额、计价时段与逐桶单价：
+
+```
+逐次模型请求                                    第 3 轮 · 第 59 步
+──────────────────────────────────────────────────────────────
+…该步合计（略）…
+──────────────────────────────────────────────────────────────
+请求 1     deepseek-official / deepseek-flash
+  未缓存输入                       1,354 tok · ¥2/1M · ¥0.002708
+  缓存读取                   167,808 tok · ¥0.04/1M · ¥0.006712
+  输出                               330 tok · ¥8/1M · ¥0.002640
+  合计                                             169,492
+  费用                                           ¥0.012060
+  计价时段                                          高峰时段
+──────────────────────────────────────────────────────────────
 重试 1/5   deepseek-official   TRANSPORT
   DeepSeek Messages transport failed
   该次请求未上报用量
-─────────────────────────────────────────────────────────────
-请求 1     deepseek-official / deepseek-flash
-  未缓存输入                                     1,354
-  缓存读取                                     167,808
-  缓存写入                                           0
-  输出                                             330
-  合计                                         169,492
+```
+
+**每一轮末尾**的官方总计行上还会追加该轮金额（轮内各步都已加载时才出现；跨时段会标成「高峰 + 空闲」）：
+
+```
+用量 1.9M  ▾   · ¥0.187342 · 高峰 + 空闲
 ```
 
 - **中间步骤**（工具调用轮）会和它们的正文一起折叠进该轮的「工作过程」里 —— 展开工作过程就能看到每一步的胶囊，和官方折叠行为一致。
@@ -115,10 +240,11 @@ dsh plugin --profile web add dsh-step-token-usage-1.0.0.tgz
 ## 数据口径
 
 - **数据源**：会话持久日志里 `assistant/message` 事件自带的 `data.usage`，即提供方上报的精确值。插件不估算、不外推。
-- **一个 step 通常就是一次计费请求**：本机 7033 个 step 的实测中，一个 step 从不多于一条 `assistant/message`。
+- **一个 step 通常就是一次计费请求**：本机 7936 个 step 的实测中，一个 step 从不多于一条 `assistant/message`。
 - **合计**优先使用提供方上报的 `totalTokens`；只有在它缺失时才按分项加和，并在界面上注明「合计为各分项加和」。
-- **恒等式**：`合计 = 未缓存输入 + 缓存读取 + 缓存写入 + 输出` 在作者本机 **全部** 已存样本上成立（撰写时 7040 / 7040）。
-- **未缓存输入**即 `inputTokens`，**不包含**缓存部分。
+- **恒等式**：`合计 = 未缓存输入 + 缓存读取 + 缓存写入 + 输出` 在作者本机 **全部** 已存样本上成立（撰写时 10034 / 10034）。
+- **未缓存输入**即 `inputTokens`，**不包含**缓存部分。这一点由恒等式反推确认：`totalTokens = inputTokens + cacheReadTokens + cacheWriteTokens + outputTokens` 在本机全部 10,034 条样本上成立，若 `inputTokens` 已是含缓存的总额，该式不可能成立。
+- **金额不估算**：只用提供方上报的 token 数乘以抓到的单价。任何一项拿不到就显示「未知」，绝不补零、绝不套用别的模型或别的时段的价格。
 
 ## 设计取舍
 
@@ -144,6 +270,16 @@ dsh plugin --profile web add dsh-step-token-usage-1.0.0.tgz
 
 最后一条是实测倒逼的：`reasoningTokens` 几乎从不单独上报，如果把它算作"缺失"，那么 **每一条** 都会弹出缺失警告，真正的异常反而被淹没。
 
+### 3. 价格动态抓取，而不是编译进代码
+
+写死单价的做法有一个必然结局：价格一变，插件就在**静默地报错数字**。所以价格一律运行时抓取。代价是引入了网络依赖与几个失败模式，处理方式如下：
+
+- **多个来源、各自独立失败**：某一边的价目表挂了，只损失那种货币；时段与节假日仍能到位。价格册里记录每个来源的成功与否。
+- **时段双源互证**：LiteLLM 给结构化时段，官方页面给脚注，一致才采信。这是唯一一个"错了会正好差 2 倍"的参数，值得多花一次校验。
+- **磁盘缓存兜底**：抓不到就用手上那份，并**明确标注**是缓存副本与上次刷新时间，而不是假装是新的。
+- **全盘失败就拒绝服务**：不返回 0，也不返回估算值，路由直接 503，界面显示「未知」。**宁可没有数字，也不给一个错的数字。**
+- **不引入依赖**：本包按软链接装进 profile，其真实路径在 profile 的 `node_modules` 之外，任何裸模块名都解析不到，所以 Host 半只用 Node 内置模块。配置因此走 JSON 文件而不是 schema。
+
 ## 与 `dsh-conversation-stats` 的区别
 
 生态里已经有一个 [`dsh-conversation-stats`](https://github.com/wellcover/dsh-conversation-stats)，两者互补而非重复：
@@ -160,12 +296,19 @@ dsh plugin --profile web add dsh-step-token-usage-1.0.0.tgz
 ## 兼容性
 
 - 实测于 **DSH 0.1.7-rc.2**。
-- 依赖两个文档化的扩展点，不依赖任何私有实现：
+- 只依赖**文档化的公共扩展点**，不碰任何私有实现：
   - `ctx.uiConversation.events.register()` 注册对话节点 Definition
   - `conversation.chat.node` 这个 keyed slot 注册渲染单元（官方契约明确写着「a kind with no occupant renders no row」，即新增 kind 不会与官方冲突）
-- **不 import 任何 DSH 客户端包**（不 require `dsh-client-ui-primitives` 等），只从浏览器模块表取 `react`。因此官方包升级不会因为导入路径变化而崩。
-- 样式只使用 `--dsw-alias-*` / `--dsh-*` 主题 token，全部带 fallback，明暗主题自适应。
-- **升级注意**：如果未来 DSH 改动了「工作过程折叠」或「轮尾分支可用性」的判定规则，胶囊的排序位置可能需要重新核对。`scripts/verify.mjs` 会对 `anchorSeq` 做断言，升级后跑一次就能发现。
+  - `conversation.chat.turnTail` 这个 **list 子槽位**（由官方轮尾节点在自己的 `children` 里声明）贡献轮级金额——只追加，不替换官方轮尾
+  - `settings.general.item` 这个 list 槽位注册设置行——官方定位是「不需要独立页面的单个偏好」
+- 金额功能另用一条 Host 路由（`ctx.inject(['webServer'])` + `webServer.register({ kind: 'exact', path, handler })`，与官方及生态插件同一写法）。没有 web server 的 profile 下，Host 半只是不注册路由，界面照常工作并显示「未知」。
+- **不 import 任何 DSH 客户端包**（不 require `dsh-client-ui-primitives` 等），只从浏览器模块表取 `react`。因此官方包升级不会因为导入路径变化而崩，`dsh.client.inject` 一直是空的。
+- **Host 半不 import 任何第三方包**，只用 Node 内置模块 —— 因为本包以软链接安装时，profile 的 `node_modules` 不在其真实路径的解析链上。
+- 样式只使用 `--dsw-alias-*` / `--dsh-*` 主题 token，全部带 fallback，明暗主题自适应；设置行的尺寸直接照抄官方 `EnterBehaviorRow` 的模块样式，因此和内置行看起来一致。
+- **网络**：仅在 Host 半每 12 小时（可配）访问上面四个来源。抓取失败只影响金额显示，不影响 token 显示。
+- **升级注意**：
+  - 如果未来 DSH 改动了「工作过程折叠」或「轮尾分支可用性」的判定规则，胶囊的排序位置可能需要重新核对。`scripts/verify.mjs` 会对 `anchorSeq` 做断言，升级后跑一次就能发现。
+  - 如果官方收回了轮尾的 `turnTail` 子槽位或 General 的设置行槽位，对应的注册会失败——轮级金额有 try/catch 兜底（静默不显示），设置行则不会注册。`npm run verify` 会断言这三个槽位的注册形状。
 
 ## 故障排查
 
@@ -175,19 +318,33 @@ dsh plugin --profile web add dsh-step-token-usage-1.0.0.tgz
 | 只有最新一轮有胶囊 | 更早的轮次还没加载到窗口内，向上滚动触发翻页即可 |
 | 某条回复显示「用量未上报」 | 该步确实没有提供方用量（通常是中断或请求失败），这是如实显示 |
 | 中间步骤看不到胶囊 | 它们和正文一起被官方折叠进「工作过程」，展开那一组即可 |
-| 装了插件但官方轮尾的按钮要悬停才出现 | 已知的轻微副作用，刷新页面后恢复；**分支按钮不受影响**（详见上文「设计取舍」） |
+| 轮尾没有金额 | 该轮的 step 还没进窗口（向上滚动翻页），或价格路由不可用；逐条胶囊仍在 |
+| 设置里找不到那三行 | 它们在 Settings → **General** 节区的末尾（order 30–32），不在插件页里 |
+| 官方轮尾的按钮要悬停才出现 | 已知的轻微副作用，刷新页面后恢复；**分支按钮不受影响**（详见上文「设计取舍」） |
+| 明细里显示「未能读取价格数据」 | 价格路由没注册（多半是装/升级后没让插件重挂载）。`curl -s localhost:28000/api/dsh-step-token-usage/pricing \| head -c 200` 应返回 JSON；返回 404 就重挂载插件或重启 `dsh web` |
+| 明细里显示「价格未知」，但路由是好的 | 该模型不在价格册里，或该次请求缺少必需的用量分项。界面会点名是哪个模型 |
+| 金额比预期高 | 先看「计价时段」：高峰价是空闲价的 **两倍**。再看是否踩到了节假日判定 |
+| 节假日仍按高峰计价 | 该年份的放假安排还没发布（holiday-cn 通常在上一年 11–12 月补上），或用 `extraHolidays` 手工补 |
+| 不想让它联网 | 把 `sources` 指向你自己的镜像，或直接写 `priceOverrides`；磁盘缓存也会在断网时继续供数 |
 
 ## 工作原理
 
-**Host 半（`lib/index.js`）**：空的 `apply()`。本插件是纯客户端展示改动，不需要路由、服务、投影或配置项，Host 半只是让这个包成为一个可挂载的 DSH 插件。
+**Host 半（`lib/index.js`）**：把价格抓下来、归一成一本「价格册」，缓存到内存与磁盘，并通过 `GET /api/dsh-step-token-usage/pricing` 交给界面。它只用 Node 内置模块（`fetch` / `node:fs`），没有任何依赖。抓取在后台进行，失败不会影响界面加载；价格册带 TTL，过期后台刷新；抓取全挂时返回 503 而不是一个假的 0。
 
 **Client 半（`lib/client.js`）**：以 `window.__ModuleLoader__.load` 注册的懒工厂（`react` 取自浏览器模块表，无 JSX、无构建）。`apply` 里做三件事：
 
 1. 注册中英词典到 `ctx.locale`
 2. 用 `ctx.uiConversation.events.register()` 注册 kind 为 `step-usage` 的 Definition —— 匹配 `step/start`、`assistant/message`(append)、`llm/retry`，按 `${turn}:${step}` 聚合
 3. 在 `conversation.chat.node` 这个 keyed slot 下注册同名渲染单元
+4. 在 `conversation.chat.turnTail` 这个 list 槽位贡献轮级金额；在 `settings.general.item` 注册三行设置
 
-**数据流**是纯函数式的：Definition 的 state 只保存 `turn`/`step` 身份，全部账目在物化时从 `context.matches` 直接折叠出来（`deriveStepUsage`），因此窗口从半步中间开始、没有 `step/start` 时同样正确。
+此外，模块加载时向 Host 取一次价格册（全页面共用一份），并订阅其变化。**峰谷判定与计价都在 Client 半**：只有它同时握着每次请求的 `time` 与自己那次请求的 `route`，因此能按"当时当地的单价"逐次计价。
+
+**轮级金额**不需要重读会话、也不借用官方包的轮级折叠函数：Definition 在物化每个 step 时顺手把该步的请求写进一张模块内的**轮级台账**（键是 `turn:step`，所以引擎重复物化只会覆盖而不会重复计数），轮尾的贡献再按自己拿到的 `turn` 去查这张表并计价。官方 turn-tail 节点在自己的 `children` 里声明了 `conversation.chat.turnTail` 这个 list 槽位，并且「子槽位表会在第一次通知前提交所有兄弟声明」，因此插件只需 `ctx.slots.inject` 等它出现即可。
+
+**数据流**是纯函数式的：Definition 的 state 只保存 `turn`/`step` 身份，全部账目在物化时从 `context.matches` 直接折叠出来（`deriveStepUsage`），因此窗口从半步中间开始、没有 `step/start` 时同样正确。计价是同一条链上的纯函数（`priceStep` 按步、`priceTurn` 按轮），三者都不依赖 React。
+
+`lib/client.js` 末尾导出一个 `__internals` 对象，把这条纯计算链暴露给 `npm run verify` —— 峰谷边界和节假日这类输入一年才出现几次，在浏览器里根本没法断言。界面本身不读它。
 
 ## 开发与验证
 
@@ -201,16 +358,25 @@ node scripts/verify.mjs
 DSH_HOME=/path/to/dsh_home node scripts/verify.mjs
 ```
 
-它会断言：Definition 与渲染单元注册在同一个 kind 上、中英词典键集一致、每一行的 `anchorSeq` 都等于其落定消息、用量样本不自相矛盾、缺失字段没有被写成 0。
+它会断言：
 
-作者本机（49 个会话）的结果，以下为撰写时的快照，数字会随会话继续增长：
+- 三种槽位注册形状正确（`conversation.chat.node` 用 key、`turnTail` 与 `settings.general.item` 用 id）、中英词典键集一致
+- 每一行的 `anchorSeq` 都等于其落定消息、用量样本不自相矛盾、缺失字段没有被写成 0
+- **金额**：峰谷在窗口两端（含起点闭、终点开）判定正确、周末与法定节假日整天算空闲、高峰价正好是空闲价的两倍、按次计价能跨峰谷相加、别名能解析到继承其价目的模型、缺分项时给「未知」而不是数字、部分可定价时合计带下界语义
+- **逐桶单价**：三类桶的单价与小计都出现，且各桶小计之和等于该步合计
+- **轮级台账**：以 `turn:step` 为键（重复物化不重复计数、只重试的 step 不入账）、轮级金额等于各步之和、轮与轮之间不串味、跨时段轮标为「高峰 + 空闲」、整体无法定价的轮报「价格未知」、无价格册或无台账时保持静默
+- **渲染**：胶囊与弹框都出现金额、未知模型不产生任何带货币符号的数字、没有价格册时给出原因、12 种状态都能渲染
+- **设置**：每个偏好都有对应设置行、中英双语文案齐全、id/order 不重复、开关初始为关、点击后写穿到明细、并能点回默认值
+- **Host 解析器**（用真实页面结构的离线夹具）：中英文价目表都解析正确、两个脚注解析出**同一个**时段（一个用 UTC、一个用北京时间）、LiteLLM 的 `off_peak_pricing.windows` 反演回同一组高峰时段、节假日只取 `isOffDay` 的日子、别家提供方的条目不会混进官方价目、两个来源冲突时不静默取信、完全没有时段来源时退回内置规则并留痕
+
+作者本机（82 个会话，10,034 条用量样本）的结果，以下为撰写时的快照，数字会随会话继续增长：
 
 ```
-steps 7048 | materialized 7043 | withUsage 7040 | withoutUsage 3
-requests 7042 | retries 6
+steps 7936 | materialized 7930 | withUsage 7926 | withoutUsage 4
+requests 7928 | retries 11
 missingCore 0 | missingOptional 11
-invariantOk 7040 | invariantBad 0 | anchorBad 0
-OK — no invariant broken.
+invariantOk 7926 | invariantBad 0 | anchorBad 0
+OK — no assertion failed.
 ```
 
 ## License
