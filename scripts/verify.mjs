@@ -43,7 +43,6 @@ const dictionaries = new Map();
 let definition = null;
 let renderer = null;
 let turnRenderer = null;
-let composerChip = null;
 let turnDefinition = null;
 let settingsRows = [];
 
@@ -158,15 +157,6 @@ mod.apply({
         registered.push(`slot ${options.name} key=${options.key}`);
         return noop;
       }
-      if (options.name === 'conversation.composer.dock') {
-        // A list slot: contributions are addressed by `id`, and each resolves
-        // its own data instead of a chain match.
-        expect(typeof options.id === 'string' && options.id !== '', 'a composer-dock contribution declares no id');
-        expect(options.key === undefined, 'a list-slot contribution must use id, not key');
-        composerChip = component;
-        registered.push(`slot ${options.name} id=${options.id} order=${options.order}`);
-        return noop;
-      }
       if (options.name === 'settings.general.item') {
         expect(typeof options.id === 'string' && options.id !== '', 'a settings row declares no id');
         expect(typeof options.order === 'number', 'a settings row declares no order');
@@ -184,7 +174,6 @@ mod.apply({
 if (definition === null) throw new Error('no Conversation Definition was registered');
 if (renderer === null) throw new Error('no renderer was registered');
 if (turnRenderer === null) throw new Error('no per-turn row renderer was registered');
-if (composerChip === null) throw new Error('no composer-dock chip was registered');
 if (turnDefinition === null) throw new Error('no per-turn Definition was registered');
 if (settingsRows.length === 0) throw new Error('no settings rows were registered');
 expect(typeof definition.buildViewNode === 'function', 'definition exposes no buildViewNode');
@@ -347,15 +336,6 @@ expect(feeRule !== null, 'no .stu-cost rule is injected');
 expect(feeRule !== null && /margin-top:6px/.test(feeRule[1]), `the fee table does not repeat the grid's 6px row gap; got ${JSON.stringify(feeRule?.[1])}`);
 expect(feeRule === null || !/color:/.test(feeRule[1]), `the fee table overrides the field-row colour; got ${JSON.stringify(feeRule?.[1])}`);
 
-// The composer chip borrows the shipped pills' shape: the same type scale and
-// line box, a 14px seat for the sign where they put their icon, and the amount
-// in the label.
-const chipRule = /\.stu-turnCost\{([^}]*)\}/.exec(css);
-const iconRule = /\.stu-turnIcon\{([^}]*)\}/.exec(css);
-expect(chipRule !== null && /font-size:calc\(var\(--dsh-content-font-size-secondary/.test(chipRule[1]), `the chip does not take the pills' type size; got ${JSON.stringify(chipRule?.[1])}`);
-expect(chipRule !== null && /line-height:calc\(20px \+ var\(--dsh-content-font-delta-secondary/.test(chipRule[1]), `the chip does not take the pills' line box; got ${JSON.stringify(chipRule?.[1])}`);
-expect(iconRule !== null && /width:14px;height:14px/.test(iconRule[1]), `the currency sign has no 14px icon seat; got ${JSON.stringify(iconRule?.[1])}`);
-
 console.log(`markup        : ${problems.length === 0 ? 'dialog structure, units, omission, retry sections and styles OK' : 'FAILED'}`);
 
 // ------------------------------------------------------------ cost and tiers
@@ -505,25 +485,22 @@ const rerender = () => {
   return { tree, panel: byClass(tree, 'stu-panel')[0], text: walk(byClass(tree, 'stu-panel')[0]).map(textOf).join(' ') };
 
 
-// per-bucket unit prices and contributions: the amount must be readable as the
-// sum of the rows above it, not taken on trust
-// per-bucket prices are off by default like the other detail sections
-expect(byClass(costPanel, 'stu-unitPrice').length === 0, 'per-bucket unit prices are visible by default');
-internals.setPreference('showRowPrices', true);
-const pricedPanel = byClass(rerender().tree, 'stu-panel')[0];
-const bucketPrices = byClass(pricedPanel, 'stu-unitPrice');
-expect(bucketPrices.length >= 3, `expected a unit price on each bucket row, found ${bucketPrices.length}`);
-const priceTexts = bucketPrices.map(textOf);
-expect(priceTexts.some((text) => text.includes('\u00a51/1M')), `the uncached-input unit price is missing: ${JSON.stringify(priceTexts)}`);
-expect(priceTexts.some((text) => text.includes('\u00a50.02/1M')), `the cache-read unit price is missing: ${JSON.stringify(priceTexts)}`);
-expect(priceTexts.some((text) => text.includes('\u00a54/1M')), `the output unit price is missing: ${JSON.stringify(priceTexts)}`);
-expect(priceTexts.some((text) => text.includes('\u00a50.002264')), `the uncached-input contribution is missing: ${JSON.stringify(priceTexts)}`);
-expect(priceTexts.some((text) => text.includes('\u00a50.001603')), `the cache-read contribution is missing: ${JSON.stringify(priceTexts)}`);
-expect(priceTexts.some((text) => text.includes('\u00a50.001672')), `the output contribution is missing: ${JSON.stringify(priceTexts)}`);
+// Per-bucket contributions: every bucket row states its own amount, always, so
+// the fee above it can be read as the sum of the rows rather than taken on
+// trust. The rate per million that produced it is deliberately not printed —
+// it is the arithmetic, not the answer.
+const bucketCosts = byClass(costPanel, 'stu-bucketCost');
+expect(bucketCosts.length >= 3, `expected an amount on each bucket row, found ${bucketCosts.length}`);
+const bucketTexts = bucketCosts.map(textOf);
+expect(bucketTexts.some((text) => text.includes('\u00a50.002264')), `the uncached-input contribution is missing: ${JSON.stringify(bucketTexts)}`);
+expect(bucketTexts.some((text) => text.includes('\u00a50.001603')), `the cache-read contribution is missing: ${JSON.stringify(bucketTexts)}`);
+expect(bucketTexts.some((text) => text.includes('\u00a50.001672')), `the output contribution is missing: ${JSON.stringify(bucketTexts)}`);
+expect(!costText.includes('/1M'), 'a per-bucket unit rate is still printed');
+expect(bucketTexts.every((text) => text.trim().startsWith('\u00b7 \u00a5')), `a bucket row does not read as "tok · amount": ${JSON.stringify(bucketTexts)}`);
 // the rows must add up to the total the section header states
 const contributions = [0.002264, 0.001603, 0.001672];
 expect(Math.abs(contributions.reduce((sum, value) => sum + value, 0) - 0.005539) < 1e-9, 'the per-bucket contributions do not sum to the step total');
-expect(walk(pricedPanel).map(textOf).join(' ').includes('\u00a50.005539'), 'the per-bucket rows and the step total disagree');
+expect(costText.includes('\u00a50.005539'), 'the per-bucket rows and the step total disagree');
 
 // the three heavy sections are hidden by default, and the preferences bring
 // each one back
@@ -549,15 +526,16 @@ expect(revealed.text.includes('\u00a50.005539'), 'revealing the sections changed
 internals.setCurrency('USD');
 const usdText = rerender().text;
 expect(usdText.includes('$0.0008308'), 'switching to USD did not re-price the step');
-internals.setPreference('showRowPrices', true);
-expect(rerender().text.includes('$0.15/1M'), 'switching to USD did not switch the unit prices');
-internals.setPreference('showRowPrices', false);
+const usdBuckets = byClass(byClass(rerender().tree, 'stu-panel')[0], 'stu-bucketCost').map(textOf);
+expect(
+  usdBuckets.length >= 3 && usdBuckets.every((text) => /^\s*\u00b7 \$\d/.test(text)),
+  `the bucket rows did not switch to USD: ${JSON.stringify(usdBuckets)}`,
+);
 expect(usdText.includes(zh['source.deepseek-docs-en']), 'switching to USD did not switch the unit-price source');
 internals.setCurrency('CNY');
 expect(rerender().text.includes('\u00a50.005539'), 'the default currency is not CNY');
 
 // back to the defaults the rest of the suite assumes
-internals.setPreference('showRowPrices', false);
 internals.setPreference('showSource', false);
 internals.setPreference('showBasis', false);
 internals.setPreference('showCurrency', false);
@@ -763,37 +741,11 @@ internals.priceStore.seed(null, { status: 'unavailable' });
 expect(turnRenderer({ node: turnOneNode, t }) === null, 'the turn row rendered without a price book');
 internals.priceStore.seed(book);
 
-// the composer chip totals every turn row that has been materialized
-internals.turnIndex.clear();
-internals.recordTurn(1, turnOneData.steps);
-internals.recordTurn(2, turnTwoNode.data.steps);
-internals.recordTurn(2, turnTwoNode.data.steps);
-expect(internals.turnIndex.size === 2, `the turn index holds ${internals.turnIndex.size} turns, expected 2 — a turn was double-counted`);
-const chipText = textOf(composerChip({ t }));
-expect(chipText.includes(internals.moneyText(offPeak.total * 2 + peak.total, 'CNY')), `the composer chip does not total every loaded turn; got ${JSON.stringify(chipText)}`);
+// no composer-dock contribution is registered at all: the session total was
+// removed, so the dock stays exactly as the shipped pills left it
+expect(!registered.some((entry) => entry.includes('composer.dock')), 'a composer-dock contribution is still registered');
 
-// The chip is shaped like the pills it sits beside: the currency sign on the
-// icon seat (where they put a 14px svg) and the amount on the label, so the two
-// take the same type size and line box instead of the sign dragging the chip
-// off the row.
-const chip = composerChip({ t });
-const chipIcons = byClass(chip, 'stu-turnIcon');
-const chipValues = byClass(chip, 'stu-turnValue');
-expect(chipIcons.length === 1 && textOf(chipIcons[0]) === '\u00a5', `the chip has no icon seat holding the currency sign; got ${JSON.stringify(chipIcons.map(textOf))}`);
-expect(
-  chipValues.length === 1 && textOf(chipValues[0]) === chipText.replace('\u00a5', ''),
-  `the chip's value does not hold the amount on its own; got ${JSON.stringify(chipValues.map(textOf))}`,
-);
-
-// with no turn seen yet, the chip renders nothing rather than zero
-internals.turnIndex.clear();
-expect(composerChip({ t }) === null, 'the composer chip rendered a total before any turn was recorded');
-internals.priceStore.seed(null, { status: 'unavailable' });
-expect(composerChip({ t }) === null, 'the composer chip rendered without a price book');
-internals.priceStore.seed(book);
-internals.turnIndex.clear();
-
-console.log(`turn total    : ${problems.length === 0 ? 'per-turn fold, anchor safety, tier mix, composer total and unpriced turns OK' : 'FAILED'}`);
+console.log(`turn total    : ${problems.length === 0 ? 'per-turn fold, anchor safety, tier mix and unpriced turns OK' : 'FAILED'}`);
 
 // ----------------------------------------------------------------- settings
 
@@ -843,14 +795,12 @@ for (const name of preferenceNames) {
   const marker =
     name === 'showBasis' ? zh['note.costBasis']
     : name === 'showSource' ? zh['source.deepseek-docs-zh']
-    : name === 'showRowPrices' ? '\u00a51/1M'
     : 'USD';
   expect(!hiddenText.includes(marker), `"${name}" is visible while off`);
   expect(shownText.includes(marker), `turning "${name}" on did not reveal it`);
   internals.setPreference(name, false);
 }
 
-expect(internals.preferenceStore.values.showRowPrices === false, 'showRowPrices did not return to its default');
 expect(internals.preferenceStore.values.showBasis === false, 'showBasis did not return to its default');
 expect(internals.preferenceStore.values.showSource === false, 'showSource did not return to its default');
 expect(internals.preferenceStore.values.showCurrency === false, 'showCurrency did not return to its default');

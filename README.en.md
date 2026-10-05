@@ -29,11 +29,10 @@ That is where the cost actually lives. In one measured session:
 - 🧮 **Per reply** — uncached input, cache read, output for that request
 - 💰 **Per-step cost** — the amount for that step, with each request carrying its own amount and tier
 - 🧾 **Per-turn cost** — its own line at the end of each completed turn, with the pricing tier
-- 📊 **Session cost** — a chip beside the composer's session pills, totalling the loaded turns
-- 🔍 **Click to expand** — provider/model, cache-hit ratio, and (opt in) per-bucket unit prices and contributions
+- 🔍 **Click to expand** — provider/model, cache-hit ratio, and each token bucket's own amount
 - 🔁 **Retries shown** — each `llm/retry` gets its own row with its failure code and message
-- 🚫 **Missing data is marked, never zeroed** — omitted provider fields read *not reported*, and an unobtainable unit price reads *unknown* rather than being estimated
-- ⚙️ **Terse by default, detail on demand** — the per-bucket prices, the calculation rule, the price source and the currency switch all start hidden and can be turned on in Settings → General
+- 🚫 **Missing data is marked, never zeroed** — omitted provider fields read *not reported*, and a cost that cannot be priced reads *unknown* rather than being estimated
+- ⚙️ **Terse by default, detail on demand** — the calculation rule, the price source and the currency switch all start hidden and can be turned on in Settings → General
 - 🌐 **Chinese + English**, following the DSH locale
 - 🧩 **Non-conflicting** — the session-level pills and the shipped turn summary stay exactly as they were
 
@@ -43,7 +42,6 @@ Three switches live in Settings → General, all off by default:
 
 | Switch | What turning it on reveals |
 |---|---|
-| **Show per-bucket unit prices** | The unit price and contribution on every token bucket (`2,264 tok · ¥1/1M · ¥0.002264`) |
 | **Show the calculation rule** | The pricing formula and the peak-window basis, inside the cost detail |
 | **Show the unit-price source** | Which rate card the unit prices came from (zh page / en page / LiteLLM / local override) |
 | **Show the currency switch** | The ¥ / $ control inside the cost detail; when off, the book default (RMB) is always used |
@@ -72,10 +70,10 @@ amount = uncached input x miss price + cache read x hit price + output x output 
 ```
 
 - **Priced per request, never blended per step.** A step that straddles a peak boundary, or that fell back to another model, bills each request at its own tier and model — the step total never multiplies a rate it never paid.
-- **Auditable per bucket.** Every token bucket carries its own unit price and contribution (`2,264 tok · ¥1/1M · ¥0.002264`), so the total can be added up from the rows. Unit prices appear only when the row can be attributed to one rate card and one tier; a step spanning tiers or models pushes them down into the per-request sections, where the attribution is unambiguous.
+- **Auditable per bucket.** Every token bucket carries its own amount (`2,264 tok · ¥0.002264`), so the total can be added up from the rows. The rate that produced that amount is the arithmetic, not the answer, so it is deliberately not printed. The amount appears only when the row can be attributed to one rate card and one tier; a step spanning tiers or models pushes it down into the per-request sections, where the attribution is unambiguous.
 - **The turn total is the sum of its steps**, and each step is still priced per request, so neither boundary crossings nor model fallbacks get flattened.
 - **Cache writes** are charged at the miss price (DeepSeek publishes no separate write premium). Across 10,034 usage samples on this machine `cacheWriteTokens` was **always 0**, so in practice the term never contributes.
-- Amounts and unit prices are formatted differently on purpose: an amount keeps its places (`¥0.005539`, `$0.0008308`, `¥123.46`, or `<0.00000001` below the supported precision rather than a false zero), while a rate stays short (`¥1/1M`, not `¥1.000/1M`).
+- An amount keeps its places (`¥0.005539`, `$0.0008308`, `¥123.46`, or `<0.00000001` below the supported precision rather than a false zero), so a sub-cent figure never reads as zero.
 - A total that is only a **lower bound** (some request could not be priced) is prefixed `≥` and the footnote names how many requests went unpriced.
 
 ### When a price cannot be obtained
@@ -128,7 +126,7 @@ Both from real sessions (DSH 0.1.7-rc.2, dark theme), showing the **two granular
 dsh plugin --profile web add github:hana647929196/dsh-step-token-usage
 
 # pinned to a release tag (recommended)
-dsh plugin --profile web add github:hana647929196/dsh-step-token-usage#v1.4.2
+dsh plugin --profile web add github:hana647929196/dsh-step-token-usage#v1.5.0
 ```
 
 Then **refresh the page** for the pills and the settings rows. Amounts need the Host half's pricing route, so **installing or upgrading requires one plugin remount** — see the note below.
@@ -143,7 +141,7 @@ From source:
 
 ```bash
 npm pack
-dsh plugin --profile web add dsh-step-token-usage-1.4.2.tgz
+dsh plugin --profile web add dsh-step-token-usage-1.5.0.tgz
 ```
 
 Manual install (no pnpm): copy the package to `~/.dsh/profiles/web/node_modules/dsh-step-token-usage`, append `"dsh-step-token-usage"` to `dsh.profile.bundles` in the profile `package.json`, and add this to the profile `cordis.patch.yml`:
@@ -180,13 +178,13 @@ Pricing tier                                      Off-peak
 
 The amount sits directly under the token rows, with no divider between them — it belongs to those rows.
 
-The **per-bucket prices**, the **unit-price source**, the **currency switch** and the two **calculation-rule** footnotes are all hidden by default; with them turned on in Settings → General it reads:
+Every bucket's amount is always shown; the **unit-price source**, the **currency switch** and the two **calculation-rule** footnotes are hidden by default. With them turned on in Settings → General it reads:
 
 ```
-Uncached input                2,264 tok · ¥1/1M · ¥0.002264
-Cache read                 80,128 tok · ¥0.02/1M · ¥0.001603
-Cache write                    0 tok · ¥1/1M · ¥0.00
-Output                      418 tok · ¥4/1M · ¥0.001672
+Uncached input                2,264 tok · ¥0.002264
+Cache read                 80,128 tok · ¥0.001603
+Cache write                    0 tok · ¥0.00
+Output                      418 tok · ¥0.001672
 Total                                            82,810 tok
 Cost                                          ¥0.005539
 Pricing tier                                      Off-peak
@@ -199,9 +197,9 @@ Currency                                       ¥ CNY | $ USD
   adjusted for the Chinese public holiday calendar.
 ```
 
-With per-bucket prices on, the bucket contributions sum to the total: `0.002264 + 0.001603 + 0.001672 = 0.005539`.
+The bucket amounts are always there, and the three of them sum to the total: `0.002264 + 0.001603 + 0.001672 = 0.005539`.
 
-When a step bills more than one request, each request gets its own section carrying its own amount, tier and per-bucket prices:
+When a step bills more than one request, each request gets its own section carrying its own amount and tier:
 
 ```
 Per-request detail                              Turn 3 · Step 59
@@ -209,9 +207,9 @@ Per-request detail                              Turn 3 · Step 59
 …step totals above, elided…
 ───────────────────────────────────────────────────────────────
 Request 1   deepseek-official / deepseek-flash
-  Uncached input                1,354 tok · ¥2/1M · ¥0.002708
-  Cache read                167,808 tok · ¥0.04/1M · ¥0.006712
-  Output                          330 tok · ¥8/1M · ¥0.002640
+  Uncached input                1,354 tok · ¥0.002708
+  Cache read                167,808 tok · ¥0.006712
+  Output                          330 tok · ¥0.002640
   Total                                           169,492
   Cost                                         ¥0.012060
   Pricing tier                                    Peak
@@ -228,12 +226,6 @@ Turn cost   ¥0.187342   Peak + off-peak
 ```
 
 It sits immediately **before** the shipped turn footer, because it anchors on the turn's last settled assistant message and never past it — anchoring past it would make the shipped footer grey out its branch action.
-
-Beside the **composer's** session pills there is a total chip covering the **loaded turns** (the tooltip states that scope):
-
-```
-Usage 3.2M · 3h 12m · ¥0.412885
-```
 
 Intermediate (tool-calling) steps fold into the turn's **work process** group together with their text, matching the shipped folding behaviour — expand that group to see each step's pill. The final answer step's pill is always directly visible.
 
@@ -267,7 +259,6 @@ Everything comes from the `data.usage` the provider already reported on each dur
 - Uses **documented public extension points only**, and no private implementation: a turn-scoped Chat Definition for the per-turn money line, and:
   - `ctx.uiConversation.events.register()` for the node Definition;
   - the keyed `conversation.chat.node` slot for its renderer (whose contract states *"a kind with no occupant renders no row"* — adding a kind cannot collide with the shipped UI);
-  - the **`conversation.composer.dock` list slot** (which the shipped session pills already occupy) for the session money chip — appended, never replacing them;
   - the `settings.general.item` list slot for the settings rows, documented as the seat for "a single setting that needs no page of its own".
 - Amounts add one Host route (`ctx.inject(['webServer'])` + `webServer.register({ kind: 'exact', path, handler })`, the same shape shipped and third-party plugins use). In a profile without a web server the plugin still mounts and simply reports prices as unknown.
 - Imports **no DSH client package**; only `react` from the browser module table, so shipped-package upgrades cannot break it via import paths. `dsh.client.inject` has always been empty.
@@ -276,7 +267,7 @@ Everything comes from the `data.usage` the provider already reported on each dur
 - **Network**: the Host half contacts the four sources above every 12 hours (configurable). A fetch failure affects amounts only, never token counts.
 - **Upgrade notes**:
   - If a future DSH changes the work-process folding or the turn-tail branch rules, re-check the pill's placement. `scripts/verify.mjs` asserts the `anchorSeq` rule, so one run surfaces it.
-  - If a future DSH withdraws the turn-tail child slot or the General settings slot, those registrations fail — the turn amount is wrapped in a try/catch and simply does not appear, while the settings rows are not registered. `npm run verify` asserts the shape of all three slot registrations.
+  - If a future DSH withdraws the General settings slot, those three rows are not registered (the detail cannot be opened; the amounts still render). The per-step and per-turn amounts are ordinary chat nodes and are unaffected. `npm run verify` asserts the shape of every registration.
 
 ## Troubleshooting
 
@@ -296,8 +287,6 @@ Everything comes from the `data.usage` the provider already reported on each dur
 
 ## How it works
 
-**The session money chip** totals the loaded turns. No single turn row can see the whole transcript, so each turn row deposits its own steps into a map keyed by turn number, and the chip reads that map. Its scope is therefore the **loaded window**, not the durable session — stated in its tooltip, and the same scope the composer's own fallback totals use.
-
 **Host half (`lib/index.js`)** fetches the unit prices and the peak/off-peak windows, normalises them into one small price book, caches it in memory and on disk, and serves it over `GET /api/dsh-step-token-usage/pricing`. It uses Node builtins only (`fetch`, `node:fs`) and has no dependencies. Fetching happens in the background and never blocks UI load; the book carries a TTL and refreshes behind the scenes; a total failure answers 503 rather than a fabricated zero.
 
 **Client half (`lib/client.js`)** registers a lazy factory via `window.__ModuleLoader__.load` (React from the browser module table; no JSX, no build). Its `apply`:
@@ -305,7 +294,7 @@ Everything comes from the `data.usage` the provider already reported on each dur
 1. registers the zh/en dictionaries on `ctx.locale`;
 2. registers a Definition of kind `step-usage` via `ctx.uiConversation.events.register()`, matching `step/start`, `assistant/message` (append) and `llm/retry`, keyed by `${turn}:${step}`;
 3. registers the renderer cell under the same string in the keyed `conversation.chat.node` slot;
-4. contributes the session money chip into the `conversation.composer.dock` list slot (the shipped session pills occupy the same one), and four rows into `settings.general.item`.
+4. registers three rows into `settings.general.item`.
 
 The Definition's state holds only `turn`/`step` identity; the whole ledger is folded from `context.matches` at materialization time, so it stays correct even when the loaded window begins mid-step with no `step/start`.
 
@@ -324,10 +313,10 @@ node scripts/verify.mjs
 DSH_HOME=/path/to/dsh_home node scripts/verify.mjs
 ```
 
-The script mounts the Client half against a fake module loader and Cordis context, then drives the Definition over every session log on the machine, asserting the properties that are hard to eyeball: the three slot registration shapes (a `key` for `conversation.chat.node`, an `id` for the two list slots), matching locale key sets, the exact `anchorSeq`, self-consistent usage samples, and omitted buckets staying `null` rather than becoming `0`. It additionally asserts:
+The script mounts the Client half against a fake module loader and Cordis context, then drives the Definition over every session log on the machine, asserting the properties that are hard to eyeball: the slot registration shapes (a `key` for `conversation.chat.node`, an `id` for `settings.general.item`), matching locale key sets, the exact `anchorSeq`, self-consistent usage samples, and omitted buckets staying `null` rather than becoming `0`. It additionally asserts:
 
 - **Amounts**: both window edges (start inclusive, end exclusive), weekends and public holidays off-peak all day, peak exactly twice off-peak, per-request addition across a boundary, alias resolution, *unknown* instead of a number when a bucket is missing, lower-bound semantics when only part of a step can be priced, and amount rendering precision.
-- **Per-bucket prices**: all three buckets carry a unit price and a contribution, and those contributions sum to the step total.
+- **Per-bucket amounts**: all three buckets print their own amount, and those amounts sum to the step total.
 - **The turn ledger**: keyed `turn:step` (a re-materialized step is not double-counted; a retry-only step is not recorded at all), the turn total equals the sum of its steps, turns do not leak into one another, a tier-spanning turn reads *peak + off-peak*, a wholly unpriced turn says so, and a turn with no ledger row or no book stays silent.
 - **Rendering**: the amount appears on both the pill and the dialog, an unpriced model produces no currency-symbol-bearing digits at all, a missing book explains itself, and all twelve states render.
 - **Settings**: every preference has a row with copy in both locales, ids and orders are unique, each switch starts off, clicking it writes through to the dialog, and clearing it returns to the default.
